@@ -3,10 +3,12 @@
 - Игровые сервисы выкатывались каждый на отдельную виртуальную машину 4CPU,4RAM, сервисы запускались в k3s.
 
 ### Сервисы
-`veladora`, go, `@revker`, http-only  
-`archive`, cpp, `@revker`, tls1.3  
-`warehouse`, go, `@kot`, tls1.3  
-`prototyper`, python, `@rx00`, tls1.3  
+`veladora`, go, [revervand](https://github.com/revervand), http-only  
+`archive`, cpp, [revervand](https://github.com/revervand), tls1.3  
+`warehouse`, go, [kot](https://github.com/kot), tls1.3  
+`prototyper`, python, [rx00](https://github.com/rx00), tls1.3  
+
+Чексистем и инфра-мастер – [dlukshto](https://github.com/capitanbanana).
 
 
 # Скорборд
