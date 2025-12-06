@@ -1,0 +1,20 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: prototype-cluster
+servers: 1
+agents: 0
+image: rancher/k3s:v1.31.5-k3s1
+ports:
+  - port: 30081:30081
+    nodeFilters:
+      - server:0
+network: k3d-prototype
+options:
+  k3d:
+    wait: true
+    timeout: "60s"
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true
+

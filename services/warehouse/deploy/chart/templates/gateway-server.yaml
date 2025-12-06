@@ -1,0 +1,153 @@
+{{- if .Values.gatewayServer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "warehouse.gatewayServer.fullname" . }}
+  labels:
+    {{- include "warehouse.componentLabels" (dict "component" "gateway-server" "context" .) | nindent 4 }}
+spec:
+  type: {{ .Values.gatewayServer.service.type }}
+  ports:
+    - port: {{ .Values.gatewayServer.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      {{- if .Values.gatewayServer.service.nodePort }}
+      nodePort: {{ .Values.gatewayServer.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "warehouse.componentSelectorLabels" (dict "component" "gateway-server" "context" .) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "warehouse.gatewayServer.fullname" . }}
+  labels:
+    {{- include "warehouse.componentLabels" (dict "component" "gateway-server" "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.gatewayServer.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "warehouse.componentSelectorLabels" (dict "component" "gateway-server" "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "warehouse.componentSelectorLabels" (dict "component" "gateway-server" "context" .) | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-db
+          image: {{ include "warehouse.image" (dict "registry" .Values.postgresql.image.registry "repository" .Values.postgresql.image.repository "tag" .Values.postgresql.image.tag) }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ .Values.gatewayServer.env.DB_HOST }} -p {{ .Values.gatewayServer.env.DB_PORT }} -U {{ .Values.gatewayServer.db.user }}; do
+                echo "Waiting for PostgreSQL..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready"
+        - name: wait-for-auth
+          image: {{ include "warehouse.image" (dict "registry" .Values.global.registry "repository" "busybox" "tag" "latest") }}
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "warehouse.authServer.fullname" . }} {{ .Values.authServer.service.port }}; do
+                echo "Waiting for auth-server..."
+                sleep 2
+              done
+              echo "Auth server is ready"
+        - name: wait-for-ti
+          image: {{ include "warehouse.image" (dict "registry" .Values.global.registry "repository" "busybox" "tag" "latest") }}
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "warehouse.tiServer.fullname" . }} {{ .Values.tiServer.service.port }}; do
+                echo "Waiting for ti-server..."
+                sleep 2
+              done
+              echo "TI server is ready"
+        - name: wait-for-warehouse
+          image: {{ include "warehouse.image" (dict "registry" .Values.global.registry "repository" "busybox" "tag" "latest") }}
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "warehouse.warehouse.fullname" . }} {{ .Values.warehouse.service.port }}; do
+                echo "Waiting for warehouse..."
+                sleep 2
+              done
+              echo "Warehouse is ready"
+      containers:
+        - name: gateway-server
+          image: {{ include "warehouse.image" (dict "registry" .Values.global.registry "repository" .Values.gatewayServer.image.repository "tag" .Values.gatewayServer.image.tag) }}
+          imagePullPolicy: {{ .Values.gatewayServer.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.gatewayServer.env.PORT }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: {{ .Values.gatewayServer.env.PORT | quote }}
+            - name: DB_HOST
+              value: {{ .Values.gatewayServer.env.DB_HOST | quote }}
+            - name: DB_PORT
+              value: {{ .Values.gatewayServer.env.DB_PORT | quote }}
+            - name: DB_NAME
+              value: {{ .Values.gatewayServer.env.DB_NAME | quote }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.gatewayServer" . }}
+                  key: db-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.gatewayServer" . }}
+                  key: db-password
+            - name: AUTH_SERVER_URL
+              value: "http://{{ include "warehouse.authServer.fullname" . }}:{{ .Values.authServer.service.port }}"
+            - name: GATEWAY_SERVER_URL
+              value: "http://{{ include "warehouse.gatewayServer.fullname" . }}:{{ .Values.gatewayServer.service.port }}"
+            - name: TI_SERVER_URL
+              value: "http://{{ include "warehouse.tiServer.fullname" . }}:{{ .Values.tiServer.service.port }}"
+            - name: OAUTH_CLIENT_ID
+              value: {{ .Values.gatewayServer.env.OAUTH_CLIENT_ID | quote }}
+            - name: OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.gatewayServer" . }}
+                  key: oauth-client-secret
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.gatewayServer" . }}
+                  key: session-secret
+            - name: SESSION_COOKIE_SECURE
+              value: {{ .Values.gatewayServer.env.SESSION_COOKIE_SECURE | quote }}
+          {{- if .Values.gatewayServer.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              {{- toYaml .Values.gatewayServer.livenessProbe.httpGet | nindent 14 }}
+            initialDelaySeconds: {{ .Values.gatewayServer.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.gatewayServer.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.gatewayServer.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.gatewayServer.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.gatewayServer.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              {{- toYaml .Values.gatewayServer.readinessProbe.httpGet | nindent 14 }}
+            initialDelaySeconds: {{ .Values.gatewayServer.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.gatewayServer.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.gatewayServer.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.gatewayServer.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.gatewayServer.resources | nindent 12 }}
+{{- end }}

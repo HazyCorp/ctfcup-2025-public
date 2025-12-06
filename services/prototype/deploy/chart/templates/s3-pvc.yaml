@@ -1,0 +1,19 @@
+{{- if and .Values.s3.enabled .Values.s3.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "prototype.s3.fullname" . }}-pvc
+  labels:
+    {{- include "prototype.labels" . | nindent 4 }}
+    app.kubernetes.io/component: s3
+spec:
+  accessModes:
+    - {{ .Values.s3.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.s3.persistence.size }}
+  {{- if .Values.s3.persistence.storageClass }}
+  storageClassName: {{ .Values.s3.persistence.storageClass }}
+  {{- end }}
+{{- end }}
+

@@ -1,0 +1,128 @@
+{{- if .Values.tls.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "archive.fullname" . }}-tls-cert-gen
+  labels:
+    {{- include "archive.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 60
+  backoffLimit: 3
+  template:
+    metadata:
+      name: {{ include "archive.fullname" . }}-tls-cert-gen
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "archive.fullname" . }}-tls-cert-gen
+      containers:
+      - name: cert-generator
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          
+          echo "Generating TLS certificate for archive service..."
+          
+          # Create OpenSSL config for SAN
+          cat > /tmp/openssl.cnf <<'SSLEOF'
+          [req]
+          default_bits = 2048
+          prompt = no
+          default_md = sha256
+          distinguished_name = dn
+          req_extensions = v3_req
+          x509_extensions = v3_ca
+          
+          [dn]
+          CN = {{ .Values.tls.commonName | default "archive.local" }}
+          
+          [v3_req]
+          subjectAltName = @alt_names
+          
+          [v3_ca]
+          subjectAltName = @alt_names
+          basicConstraints = CA:FALSE
+          keyUsage = digitalSignature, keyEncipherment
+          extendedKeyUsage = serverAuth
+          
+          [alt_names]
+          DNS.1 = {{ .Values.tls.commonName | default "archive.local" }}
+          DNS.2 = localhost
+          DNS.3 = *.ctfcup.io
+          IP.1 = 127.0.0.1
+          IP.2 = 0.0.0.0
+          SSLEOF
+          
+          # Generate private key
+          openssl genrsa -out /tmp/tls.key 2048
+          
+          # Generate self-signed certificate with SAN
+          openssl req -new -x509 -key /tmp/tls.key \
+            -out /tmp/tls.crt \
+            -days 365 \
+            -config /tmp/openssl.cnf
+          
+          echo "Certificate generated successfully"
+          
+          # Create Kubernetes secret using kubectl
+          kubectl create secret tls {{ include "archive.fullname" . }}-tls \
+            --cert=/tmp/tls.crt \
+            --key=/tmp/tls.key \
+            --namespace={{ .Release.Namespace }} \
+            --save-config \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo "Secret created successfully"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "archive.fullname" . }}-tls-cert-gen
+  labels:
+    {{- include "archive.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "archive.fullname" . }}-tls-cert-gen
+  labels:
+    {{- include "archive.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create", "get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "archive.fullname" . }}-tls-cert-gen
+  labels:
+    {{- include "archive.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "archive.fullname" . }}-tls-cert-gen
+subjects:
+- kind: ServiceAccount
+  name: {{ include "archive.fullname" . }}-tls-cert-gen
+  namespace: {{ .Release.Namespace }}
+{{- end }}
+

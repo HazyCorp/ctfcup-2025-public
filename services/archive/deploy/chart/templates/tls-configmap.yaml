@@ -1,0 +1,41 @@
+{{- if .Values.tls.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "archive.fullname" . }}-tls-proxy-config
+  labels:
+    {{- include "archive.labels" . | nindent 4 }}
+data:
+  nginx.conf: |
+    worker_processes 1;
+    error_log /dev/stderr warn;
+    pid /tmp/nginx.pid;
+    
+    events {
+        worker_connections 1024;
+    }
+    
+    stream {
+        log_format basic '$remote_addr [$time_local] '
+                         '$protocol $status $bytes_sent $bytes_received '
+                         '$session_time';
+        
+        access_log /dev/stdout basic;
+        
+        server {
+            listen {{ .Values.tls.proxyPort | default 30033 }} ssl;
+            
+            ssl_certificate /etc/nginx/certs/tls.crt;
+            ssl_certificate_key /etc/nginx/certs/tls.key;
+            ssl_protocols TLSv1.2 TLSv1.3;
+            ssl_ciphers HIGH:!aNULL:!MD5;
+            ssl_session_cache shared:SSL:10m;
+            ssl_session_timeout 10m;
+            
+            proxy_pass 127.0.0.1:31337;
+            proxy_connect_timeout 5s;
+            proxy_timeout 30s;
+        }
+    }
+{{- end }}
+

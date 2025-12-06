@@ -1,0 +1,84 @@
+replicaCount: 1
+
+image:
+  repository: archive
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+cleaner:
+  image:
+    repository: archive-cleaner
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  enabled: true
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# TLS configuration - enables TLS termination via nginx sidecar
+tls:
+  enabled: true
+  commonName: "archive.local"
+  proxyPort: 30033  # Internal port for TLS proxy
+
+networkPolicy:
+  enabled: false
+  # Разрешаем входящий трафик только на NodePort
+  allowNodePort: true
+  # Разрешаем внутренний трафик между подами в namespace
+  allowIntraNamespace: true
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 65534  # nobody user
+
+service:
+  type: NodePort
+  port: 31337
+  nodePort: 30033
+  # Access via: <node-ip>:30033
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+cleanerResources:
+  limits:
+    cpu: 250m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+volumes:
+  libraries:
+    enabled: true
+    size: 10Gi
+    accessMode: ReadWriteOnce
+    storageClass: ""
+  
+  secrets:
+    enabled: true
+    size: 5Gi
+    accessMode: ReadWriteOnce
+    storageClass: ""
+

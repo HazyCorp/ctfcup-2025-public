@@ -1,0 +1,16 @@
+{{- if .Values.s3.csiDriver.install }}
+---
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: {{ .Values.s3.csiDriver.driverName }}
+  labels:
+    {{- include "prototype.labels" . | nindent 4 }}
+    app.kubernetes.io/component: csi-driver
+spec:
+  attachRequired: false
+  podInfoOnMount: true
+  volumeLifecycleModes:
+    - Persistent
+{{- end }}
+

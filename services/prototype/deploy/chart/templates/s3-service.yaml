@@ -1,0 +1,20 @@
+{{- if .Values.s3.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "prototype.s3.fullname" . }}
+  labels:
+    {{- include "prototype.labels" . | nindent 4 }}
+    app.kubernetes.io/component: s3
+spec:
+  type: {{ .Values.s3.service.type }}
+  ports:
+  - name: s3
+    port: 9000
+    targetPort: s3
+    protocol: TCP
+  selector:
+    {{- include "prototype.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: s3
+{{- end }}
+

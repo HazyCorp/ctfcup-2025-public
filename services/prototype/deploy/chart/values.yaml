@@ -1,0 +1,88 @@
+replicaCount: 1
+
+image:
+  repository: prototype
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+service:
+  type: NodePort
+  port: 8080
+  nodePort: 30081
+
+tls:
+  enabled: true
+  commonName: "prototype.local"
+  certificate: ""
+  key: ""
+  certificateBase64: ""
+  keyBase64: ""
+
+resources:
+  limits:
+    cpu: 2
+    memory: 2048Mi
+  requests:
+    cpu: 1
+    memory: 256Mi
+
+s3:
+  enabled: true
+  
+  image:
+    repository: minio/minio
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  
+  rootUser: ""
+  rootPassword: ""
+  
+  service:
+    type: ClusterIP
+  
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 10Gi
+  
+  resources:
+    limits:
+      cpu: 4
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  
+  tuning:
+    apiRequestsMax: 0
+    apiRequestsDeadline: 10s
+    goMaxProcs: 4
+    scannerSpeed: fastest
+  
+  csiDriver:
+    install: true
+    driverName: ru.yandex.s3.csi
+    storageClassName: s3-csi
+    storageSize: 5Gi

@@ -1,0 +1,265 @@
+# Default values for warehouse
+
+global:
+  registry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+  tls:
+    enabled: true
+    secretName: "warehouse-tls-cert"
+    generateSelfSigned: true
+    certValidity: 3650  # 10 years
+    commonName: "warehouse.local"
+    organization: "Warehouse"
+
+ingress-nginx:
+  controller:
+    service:
+      type: NodePort
+      nodePorts:
+        http: 31080
+        https: 31443
+
+postgresql:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+    initdb:
+      scriptsConfigMap: "postgres-init-scripts"
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "250m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+
+  service:
+    type: ClusterIP
+    port: 5432
+
+tiServer:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: warehouse-ti-server
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  env:
+    PORT: "8080"
+    DB_HOST: "warehouse-postgresql"
+    DB_PORT: "5432"
+    DB_NAME: "tiserver"
+
+  db:
+    user: "tiserver"
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+authServer:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: warehouse-auth-server
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8081
+
+  env:
+    PORT: "8081"
+    DB_HOST: "warehouse-postgresql"
+    DB_PORT: "5432"
+    DB_NAME: "authserver"
+    JWT_KEY_PATH: "/app/keys/jwt_key.pem"
+
+  db:
+    user: "authserver"
+
+  persistence:
+    enabled: true
+    size: 1Gi
+    mountPath: /app/keys
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /health
+      port: 8081
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /health
+      port: 8081
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+warehouse:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: warehouse-warehouse
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8082
+
+  env:
+    PORT: "8082"
+    DB_HOST: "warehouse-postgresql"
+    DB_PORT: "5432"
+    DB_NAME: "warehouse"
+    OAUTH_CLIENT_ID: "warehouse"
+    SESSION_COOKIE_SECURE: "false"
+
+  db:
+    user: "warehouse"
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /health
+      port: 8082
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /health
+      port: 8082
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+gatewayServer:
+  enabled: true
+  replicaCount: 1
+
+  image:
+    repository: warehouse-gateway-server
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  env:
+    PORT: "8000"
+    DB_HOST: "warehouse-postgresql"
+    DB_PORT: "5432"
+    DB_NAME: "gateway"
+    OAUTH_CLIENT_ID: "gateway-server"
+    SESSION_COOKIE_SECURE: "false"
+
+  db:
+    user: "gateway"
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "512Mi"
+      cpu: "400m"
+
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3

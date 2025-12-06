@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "prototype.fullname" . }}-nginx
+  labels:
+    {{- include "prototype.labels" . | nindent 4 }}
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+    error_log /var/log/nginx/error.log notice;
+    pid /var/run/nginx.pid;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                        '$status $body_bytes_sent "$http_referer" '
+                        '"$http_user_agent" "$http_x_forwarded_for"';
+
+        access_log /var/log/nginx/access.log main;
+
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        keepalive_timeout 65;
+        types_hash_max_size 2048;
+        client_max_body_size 100M;
+        {{- if .Values.tls.enabled }}
+
+        ssl_protocols TLSv1.3;
+        ssl_prefer_server_ciphers off;
+        ssl_session_timeout 1d;
+        ssl_session_cache shared:SSL:50m;
+        ssl_session_tickets off;
+        {{- end }}
+
+        upstream flask_app {
+            server localhost:5000;
+        }
+
+        upstream s3 {
+            server {{ include "prototype.s3.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:9000;
+        }
+
+        server {
+            {{- if .Values.tls.enabled }}
+            listen 8080 ssl;
+            http2 on;
+            server_name _;
+            
+            ssl_certificate /etc/nginx/ssl/tls.crt;
+            ssl_certificate_key /etc/nginx/ssl/tls.key;
+
+            error_page 497 =301 https://$host:30081$request_uri;
+            {{- else }}
+            listen 8080;
+            server_name _;
+            {{- end }}
+
+            if ($request_method !~ ^(GET|POST|PUT|HEAD)$) {
+                return 403;
+            }
+
+            location / {
+                proxy_pass http://flask_app;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_http_version 1.1;
+                proxy_set_header Connection "";
+
+                # route all scrapers to health
+                location ~* (/serv|can|conf|date|file) {
+                    rewrite ^ /health break;
+                    proxy_pass http://flask_app;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Original-URI $request_uri;
+                }
+            }
+
+            location /s3/ {
+                rewrite ^/s3/(.*) /$1 break;
+                
+                proxy_pass http://s3;
+
+                proxy_set_header Host {{ include "prototype.s3.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:9000;
+                
+                proxy_pass_request_headers on;
+                
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_http_version 1.1;
+                proxy_set_header Connection "";
+                
+                proxy_set_header X-Forwarded-Host $host;
+                proxy_set_header X-Forwarded-Port $server_port;
+                
+                proxy_buffering off;
+                proxy_request_buffering off;
+            }
+
+            location /nginx-health {
+                access_log off;
+                return 200 "healthy\n";
+                add_header Content-Type text/plain;
+            }
+        }
+    }
+

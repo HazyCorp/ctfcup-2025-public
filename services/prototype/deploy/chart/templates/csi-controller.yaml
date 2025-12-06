@@ -1,0 +1,60 @@
+{{- if .Values.s3.csiDriver.install }}
+{{- $csiImage := "cr.yandex/crp9ftr22d26age3hulg/csi-s3:0.43.2" }}
+{{- $csiEndpoint := "unix:///csi/csi.sock" }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "prototype.fullname" . }}-csi-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "prototype.labels" . | nindent 4 }}
+    app.kubernetes.io/component: csi-controller
+spec:
+  serviceName: {{ include "prototype.fullname" . }}-csi-controller
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "prototype.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: csi-controller
+  template:
+    metadata:
+      labels:
+        {{- include "prototype.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: csi-controller
+    spec:
+      serviceAccountName: {{ include "prototype.fullname" . }}-csi-controller
+      containers:
+      - name: csi-provisioner
+        image: cr.yandex/crp9ftr22d26age3hulg/yandex-cloud/csi-s3/csi-provisioner:v2.1.0
+        args:
+        - --csi-address=/csi/csi.sock
+        - --v=5
+        - --timeout=300s
+        - --leader-election
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /csi
+      - name: s3-csi-driver
+        image: {{ $csiImage }}
+        args:
+        - --endpoint=$(CSI_ENDPOINT)
+        - --nodeid=$(KUBE_NODE_NAME)
+        - --v=5
+        env:
+        - name: CSI_ENDPOINT
+          value: {{ $csiEndpoint }}
+        - name: KUBE_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /csi
+        securityContext:
+          privileged: true
+      volumes:
+      - name: socket-dir
+        emptyDir: {}
+{{- end }}
+

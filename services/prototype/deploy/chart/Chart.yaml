@@ -1,0 +1,11 @@
+apiVersion: v2
+name: prototype
+description: Cocktail Recipe Service with S3 Storage
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - flask
+maintainers:
+  - name: hazyteam
+

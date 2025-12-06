@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "veladora.frontend.fullname" . }}
+  labels:
+    {{- include "veladora.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  type: {{ .Values.frontendService.type }}
+  ports:
+  - port: {{ .Values.frontendService.port }}
+    targetPort: http
+    protocol: TCP
+    name: http
+    {{- if and (eq .Values.frontendService.type "NodePort") .Values.frontendService.nodePort }}
+    nodePort: {{ .Values.frontendService.nodePort }}
+    {{- end }}
+  selector:
+    {{- include "veladora.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+

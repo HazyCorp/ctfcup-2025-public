@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "archive.fullname" . }}
+  labels:
+    {{- include "archive.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "archive.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "archive.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "archive.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: {{ .Chart.Name }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: tcp
+          containerPort: 31337
+          protocol: TCP
+        {{- if not .Values.tls.enabled }}
+        livenessProbe:
+          tcpSocket:
+            port: tcp
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: tcp
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+        volumeMounts:
+        - name: libraries
+          mountPath: /var/archive/libraries
+        - name: secrets
+          mountPath: /var/archive/secrets
+      {{- if .Values.tls.enabled }}
+      # TLS sidecar - nginx stream proxy for TLS termination
+      - name: tls-proxy
+        image: nginx:alpine
+        ports:
+        - name: tls
+          containerPort: {{ .Values.tls.proxyPort | default 30033 }}
+          protocol: TCP
+        livenessProbe:
+          tcpSocket:
+            port: tls
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: tls
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 50m
+            memory: 32Mi
+        volumeMounts:
+        - name: tls-proxy-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: tls-certs
+          mountPath: /etc/nginx/certs
+          readOnly: true
+      {{- end }}
+      volumes:
+      - name: libraries
+        {{- if .Values.volumes.libraries.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "archive.fullname" . }}-libraries-pvc
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: secrets
+        {{- if .Values.volumes.secrets.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "archive.fullname" . }}-secrets-pvc
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      {{- if .Values.tls.enabled }}
+      - name: tls-proxy-config
+        configMap:
+          name: {{ include "archive.fullname" . }}-tls-proxy-config
+      - name: tls-certs
+        secret:
+          secretName: {{ include "archive.fullname" . }}-tls
+      {{- end }}

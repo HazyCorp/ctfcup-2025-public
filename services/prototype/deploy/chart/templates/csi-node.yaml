@@ -1,0 +1,74 @@
+{{- if .Values.s3.csiDriver.install }}
+{{- $csiImage := "cr.yandex/crp9ftr22d26age3hulg/csi-s3:0.43.2" }}
+{{- $csiEndpoint := "unix:///csi/csi.sock" }}
+{{- $driverName := .Values.s3.csiDriver.driverName }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "prototype.fullname" . }}-csi-node
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "prototype.labels" . | nindent 4 }}
+    app.kubernetes.io/component: csi-node
+spec:
+  selector:
+    matchLabels:
+      {{- include "prototype.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: csi-node
+  template:
+    metadata:
+      labels:
+        {{- include "prototype.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: csi-node
+    spec:
+      serviceAccountName: {{ include "prototype.fullname" . }}-csi-node
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: node-driver-registrar
+        image: cr.yandex/crp9ftr22d26age3hulg/yandex-cloud/csi-s3/csi-node-driver-registrar:v1.2.0
+        args:
+        - --csi-address=/csi/csi.sock
+        - --kubelet-registration-path=/var/lib/kubelet/plugins/{{ $driverName }}/csi.sock
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /csi
+        - name: registration-dir
+          mountPath: /registration
+      - name: s3-csi-driver
+        image: {{ $csiImage }}
+        args:
+        - --endpoint=$(CSI_ENDPOINT)
+        - --nodeid=$(KUBE_NODE_NAME)
+        - --v=5
+        env:
+        - name: CSI_ENDPOINT
+          value: {{ $csiEndpoint }}
+        - name: KUBE_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: socket-dir
+          mountPath: /csi
+        - name: pods-mount-dir
+          mountPath: /var/lib/kubelet/pods
+          mountPropagation: Bidirectional
+      volumes:
+      - name: socket-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins/{{ $driverName }}
+          type: DirectoryOrCreate
+      - name: registration-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins_registry
+          type: Directory
+      - name: pods-mount-dir
+        hostPath:
+          path: /var/lib/kubelet/pods
+          type: Directory
+{{- end }}
+

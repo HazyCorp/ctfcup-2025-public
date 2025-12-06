@@ -1,0 +1,141 @@
+{{- if .Values.authServer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "warehouse.authServer.fullname" . }}
+  labels:
+    {{- include "warehouse.componentLabels" (dict "component" "auth-server" "context" .) | nindent 4 }}
+spec:
+  type: {{ .Values.authServer.service.type }}
+  ports:
+    - port: {{ .Values.authServer.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      {{- if .Values.authServer.service.nodePort }}
+      nodePort: {{ .Values.authServer.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "warehouse.componentSelectorLabels" (dict "component" "auth-server" "context" .) | nindent 4 }}
+---
+{{- if .Values.authServer.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "warehouse.authServer.fullname" . }}-keys
+  labels:
+    {{- include "warehouse.componentLabels" (dict "component" "auth-server" "context" .) | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.global.storageClass }}
+  storageClassName: {{ .Values.global.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.authServer.persistence.size }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "warehouse.authServer.fullname" . }}
+  labels:
+    {{- include "warehouse.componentLabels" (dict "component" "auth-server" "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.authServer.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "warehouse.componentSelectorLabels" (dict "component" "auth-server" "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "warehouse.componentSelectorLabels" (dict "component" "auth-server" "context" .) | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-db
+          image: {{ include "warehouse.image" (dict "registry" .Values.postgresql.image.registry "repository" .Values.postgresql.image.repository "tag" .Values.postgresql.image.tag) }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ .Values.authServer.env.DB_HOST }} -p {{ .Values.authServer.env.DB_PORT }} -U {{ .Values.authServer.db.user }}; do
+                echo "Waiting for PostgreSQL..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready"
+      containers:
+        - name: auth-server
+          image: {{ include "warehouse.image" (dict "registry" .Values.global.registry "repository" .Values.authServer.image.repository "tag" .Values.authServer.image.tag) }}
+          imagePullPolicy: {{ .Values.authServer.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.authServer.env.PORT }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: {{ .Values.authServer.env.PORT | quote }}
+            - name: DB_HOST
+              value: {{ .Values.authServer.env.DB_HOST | quote }}
+            - name: DB_PORT
+              value: {{ .Values.authServer.env.DB_PORT | quote }}
+            - name: DB_NAME
+              value: {{ .Values.authServer.env.DB_NAME | quote }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.authServer" . }}
+                  key: db-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.authServer" . }}
+                  key: db-password
+            - name: JWT_KEY_PATH
+              value: {{ .Values.authServer.env.JWT_KEY_PATH | quote }}
+            - name: WAREHOUSE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.authServer" . }}
+                  key: warehouse-client-secret
+            - name: GATEWAY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.authServer" . }}
+                  key: gateway-client-secret
+          {{- if .Values.authServer.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              {{- toYaml .Values.authServer.livenessProbe.httpGet | nindent 14 }}
+            initialDelaySeconds: {{ .Values.authServer.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.authServer.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.authServer.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.authServer.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.authServer.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              {{- toYaml .Values.authServer.readinessProbe.httpGet | nindent 14 }}
+            initialDelaySeconds: {{ .Values.authServer.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.authServer.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.authServer.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.authServer.readinessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.authServer.persistence.enabled }}
+          volumeMounts:
+            - name: keys
+              mountPath: {{ .Values.authServer.persistence.mountPath }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.authServer.resources | nindent 12 }}
+      {{- if .Values.authServer.persistence.enabled }}
+      volumes:
+        - name: keys
+          persistentVolumeClaim:
+            claimName: {{ include "warehouse.authServer.fullname" . }}-keys
+      {{- end }}
+{{- end }}

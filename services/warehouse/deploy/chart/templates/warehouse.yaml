@@ -1,0 +1,131 @@
+{{- if .Values.warehouse.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "warehouse.warehouse.fullname" . }}
+  labels:
+    {{- include "warehouse.componentLabels" (dict "component" "warehouse" "context" .) | nindent 4 }}
+spec:
+  type: {{ .Values.warehouse.service.type }}
+  ports:
+    - port: {{ .Values.warehouse.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      {{- if .Values.warehouse.service.nodePort }}
+      nodePort: {{ .Values.warehouse.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "warehouse.componentSelectorLabels" (dict "component" "warehouse" "context" .) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "warehouse.warehouse.fullname" . }}
+  labels:
+    {{- include "warehouse.componentLabels" (dict "component" "warehouse" "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.warehouse.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "warehouse.componentSelectorLabels" (dict "component" "warehouse" "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "warehouse.componentSelectorLabels" (dict "component" "warehouse" "context" .) | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-db
+          image: {{ include "warehouse.image" (dict "registry" .Values.postgresql.image.registry "repository" .Values.postgresql.image.repository "tag" .Values.postgresql.image.tag) }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ .Values.warehouse.env.DB_HOST }} -p {{ .Values.warehouse.env.DB_PORT }} -U {{ .Values.warehouse.db.user }}; do
+                echo "Waiting for PostgreSQL..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready"
+        - name: wait-for-auth
+          image: {{ include "warehouse.image" (dict "registry" .Values.global.registry "repository" "busybox" "tag" "latest") }}
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "warehouse.authServer.fullname" . }} {{ .Values.authServer.service.port }}; do
+                echo "Waiting for auth-server..."
+                sleep 2
+              done
+              echo "Auth server is ready"
+      containers:
+        - name: warehouse
+          image: {{ include "warehouse.image" (dict "registry" .Values.global.registry "repository" .Values.warehouse.image.repository "tag" .Values.warehouse.image.tag) }}
+          imagePullPolicy: {{ .Values.warehouse.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.warehouse.env.PORT }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: {{ .Values.warehouse.env.PORT | quote }}
+            - name: DB_HOST
+              value: {{ .Values.warehouse.env.DB_HOST | quote }}
+            - name: DB_PORT
+              value: {{ .Values.warehouse.env.DB_PORT | quote }}
+            - name: DB_NAME
+              value: {{ .Values.warehouse.env.DB_NAME | quote }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.warehouse" . }}
+                  key: db-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.warehouse" . }}
+                  key: db-password
+            - name: ASSET_SERVER_URL
+              value: "http://{{ include "warehouse.warehouse.fullname" . }}:{{ .Values.warehouse.service.port }}"
+            - name: AUTH_SERVER_URL
+              value: "http://{{ include "warehouse.authServer.fullname" . }}:{{ .Values.authServer.service.port }}"
+            - name: GATEWAY_SERVER_URL
+              value: "http://{{ include "warehouse.gatewayServer.fullname" . }}:{{ .Values.gatewayServer.service.port }}"
+            - name: OAUTH_CLIENT_ID
+              value: {{ .Values.warehouse.env.OAUTH_CLIENT_ID | quote }}
+            - name: OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.warehouse" . }}
+                  key: oauth-client-secret
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.warehouse" . }}
+                  key: session-secret
+            - name: SESSION_COOKIE_SECURE
+              value: {{ .Values.warehouse.env.SESSION_COOKIE_SECURE | quote }}
+          {{- if .Values.warehouse.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              {{- toYaml .Values.warehouse.livenessProbe.httpGet | nindent 14 }}
+            initialDelaySeconds: {{ .Values.warehouse.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.warehouse.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.warehouse.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.warehouse.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.warehouse.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              {{- toYaml .Values.warehouse.readinessProbe.httpGet | nindent 14 }}
+            initialDelaySeconds: {{ .Values.warehouse.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.warehouse.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.warehouse.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.warehouse.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.warehouse.resources | nindent 12 }}
+{{- end }}

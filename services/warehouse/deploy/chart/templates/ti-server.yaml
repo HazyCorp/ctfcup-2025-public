@@ -1,0 +1,100 @@
+{{- if .Values.tiServer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "warehouse.tiServer.fullname" . }}
+  labels:
+    {{- include "warehouse.componentLabels" (dict "component" "ti-server" "context" .) | nindent 4 }}
+spec:
+  type: {{ .Values.tiServer.service.type }}
+  ports:
+    - port: {{ .Values.tiServer.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      {{- if .Values.tiServer.service.nodePort }}
+      nodePort: {{ .Values.tiServer.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "warehouse.componentSelectorLabels" (dict "component" "ti-server" "context" .) | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "warehouse.tiServer.fullname" . }}
+  labels:
+    {{- include "warehouse.componentLabels" (dict "component" "ti-server" "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.tiServer.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "warehouse.componentSelectorLabels" (dict "component" "ti-server" "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "warehouse.componentSelectorLabels" (dict "component" "ti-server" "context" .) | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-db
+          image: {{ include "warehouse.image" (dict "registry" .Values.postgresql.image.registry "repository" .Values.postgresql.image.repository "tag" .Values.postgresql.image.tag) }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ .Values.tiServer.env.DB_HOST }} -p {{ .Values.tiServer.env.DB_PORT }} -U {{ .Values.tiServer.db.user }}; do
+                echo "Waiting for PostgreSQL..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready"
+      containers:
+        - name: ti-server
+          image: {{ include "warehouse.image" (dict "registry" .Values.global.registry "repository" .Values.tiServer.image.repository "tag" .Values.tiServer.image.tag) }}
+          imagePullPolicy: {{ .Values.tiServer.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.tiServer.env.PORT }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: {{ .Values.tiServer.env.PORT | quote }}
+            - name: DB_HOST
+              value: {{ .Values.tiServer.env.DB_HOST | quote }}
+            - name: DB_PORT
+              value: {{ .Values.tiServer.env.DB_PORT | quote }}
+            - name: DB_NAME
+              value: {{ .Values.tiServer.env.DB_NAME | quote }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.tiServer" . }}
+                  key: db-user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "warehouse.secretName.tiServer" . }}
+                  key: db-password
+          {{- if .Values.tiServer.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              {{- toYaml .Values.tiServer.livenessProbe.httpGet | nindent 14 }}
+            initialDelaySeconds: {{ .Values.tiServer.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.tiServer.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.tiServer.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.tiServer.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.tiServer.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              {{- toYaml .Values.tiServer.readinessProbe.httpGet | nindent 14 }}
+            initialDelaySeconds: {{ .Values.tiServer.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.tiServer.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.tiServer.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.tiServer.readinessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.tiServer.resources | nindent 12 }}
+{{- end }}

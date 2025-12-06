@@ -1,0 +1,59 @@
+{{- if .Values.cleaner.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "archive.cleaner.fullname" . }}
+  labels:
+    {{- include "archive.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cleaner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "archive.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cleaner
+  template:
+    metadata:
+      labels:
+        {{- include "archive.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cleaner
+    spec:
+      serviceAccountName: {{ include "archive.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: cleaner
+        image: "{{ .Values.cleaner.image.repository }}:{{ .Values.cleaner.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.cleaner.image.pullPolicy }}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          {{- toYaml .Values.cleanerResources | nindent 10 }}
+        volumeMounts:
+        - name: libraries
+          mountPath: /var/archive/libraries
+        - name: secrets
+          mountPath: /var/archive/secrets
+      volumes:
+      - name: libraries
+        {{- if .Values.volumes.libraries.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "archive.fullname" . }}-libraries-pvc
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: secrets
+        {{- if .Values.volumes.secrets.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "archive.fullname" . }}-secrets-pvc
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+{{- end }}
+

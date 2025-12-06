@@ -1,0 +1,90 @@
+{{- if .Values.s3.enabled }}
+{{- $s3SecretName := printf "%s-secret" (include "prototype.s3.fullname" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "prototype.s3.fullname" . }}
+  labels:
+    {{- include "prototype.labels" . | nindent 4 }}
+    app.kubernetes.io/component: s3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "prototype.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: s3
+  template:
+    metadata:
+      labels:
+        {{- include "prototype.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: s3
+    spec:
+      containers:
+      - name: s3
+        image: "{{ .Values.s3.image.repository }}:{{ .Values.s3.image.tag }}"
+        imagePullPolicy: {{ .Values.s3.image.pullPolicy }}
+        args:
+          - server
+          - /data
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ $s3SecretName }}
+              key: rootUser
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $s3SecretName }}
+              key: rootPassword
+        # Performance tuning
+        - name: GOMAXPROCS
+          value: "{{ .Values.s3.tuning.goMaxProcs | default 4 }}"
+        - name: MINIO_API_REQUESTS_MAX
+          value: "{{ .Values.s3.tuning.apiRequestsMax | default 0 }}"
+        - name: MINIO_API_REQUESTS_DEADLINE
+          value: "{{ .Values.s3.tuning.apiRequestsDeadline | default "10s" }}"
+        - name: MINIO_SCANNER_SPEED
+          value: "{{ .Values.s3.tuning.scannerSpeed | default "fastest" }}"
+        ports:
+        - name: s3
+          containerPort: 9000
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /minio/health/live
+            port: s3
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /minio/health/ready
+            port: s3
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /minio/health/live
+            port: s3
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 30
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          {{- toYaml .Values.s3.resources | nindent 10 }}
+      volumes:
+      - name: data
+        {{- if .Values.s3.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "prototype.s3.fullname" . }}-pvc
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+{{- end }}
+

@@ -1,0 +1,59 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "warehouse.fullname" . }}
+  labels:
+    {{- include "warehouse.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - http:
+        paths:
+          {{- if .Values.gatewayServer.enabled }}
+          - path: /gateway(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "warehouse.gatewayServer.fullname" . }}
+                port:
+                  number: {{ .Values.gatewayServer.service.port }}
+          {{- end }}
+          {{- if .Values.authServer.enabled }}
+          - path: /auth(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "warehouse.authServer.fullname" . }}
+                port:
+                  number: {{ .Values.authServer.service.port }}
+          {{- end }}
+          {{- if .Values.warehouse.enabled }}
+          - path: /warehouse(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "warehouse.warehouse.fullname" . }}
+                port:
+                  number: {{ .Values.warehouse.service.port }}
+          {{- end }}
+          {{- if .Values.tiServer.enabled }}
+          - path: /ti(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "warehouse.tiServer.fullname" . }}
+                port:
+                  number: {{ .Values.tiServer.service.port }}
+          {{- end }}
+{{- end }}

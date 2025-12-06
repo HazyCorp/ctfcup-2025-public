@@ -1,0 +1,26 @@
+{{- if .Values.s3.csiDriver.install }}
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.s3.csiDriver.storageClassName }}
+  labels:
+    {{- include "prototype.labels" . | nindent 4 }}
+    app.kubernetes.io/component: csi-driver
+provisioner: {{ .Values.s3.csiDriver.driverName }}
+parameters:
+  mounter: geesefs
+  options: "--memory-limit 1000 --dir-mode 0777 --file-mode 0666"
+  csi.storage.k8s.io/provisioner-secret-name: {{ include "prototype.s3.fullname" . }}-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: {{ .Release.Namespace }}
+  csi.storage.k8s.io/controller-publish-secret-name: {{ include "prototype.s3.fullname" . }}-secret
+  csi.storage.k8s.io/controller-publish-secret-namespace: {{ .Release.Namespace }}
+  csi.storage.k8s.io/node-stage-secret-name: {{ include "prototype.s3.fullname" . }}-secret
+  csi.storage.k8s.io/node-stage-secret-namespace: {{ .Release.Namespace }}
+  csi.storage.k8s.io/node-publish-secret-name: {{ include "prototype.s3.fullname" . }}-secret
+  csi.storage.k8s.io/node-publish-secret-namespace: {{ .Release.Namespace }}
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+{{- end }}
+

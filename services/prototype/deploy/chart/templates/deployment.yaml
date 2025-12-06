@@ -1,0 +1,146 @@
+{{- $s3SecretName := printf "%s-secret" (include "prototype.s3.fullname" .) }}
+{{- $tlsScheme := ternary "HTTPS" "HTTP" .Values.tls.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "prototype.fullname" . }}
+  labels:
+    {{- include "prototype.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "prototype.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/nginx-config: {{ include (print $.Template.BasePath "/nginx-configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "prototype.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "prototype.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+      - name: wait-for-s3
+        image: busybox:1.35
+        command: ['sh', '-c', 'until nc -z {{ include "prototype.s3.fullname" . }} 9000; do echo waiting for s3; sleep 2; done;']
+      containers:
+      - name: {{ .Chart.Name }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+        - name: MINIO_ENDPOINT
+          value: "{{ include "prototype.s3.fullname" . }}:9000"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $s3SecretName }}
+              key: rootUser
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $s3SecretName }}
+              key: rootPassword
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ $s3SecretName }}
+              key: rootUser
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $s3SecretName }}
+              key: rootPassword
+        - name: TOKEN_SALT
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "prototype.fullname" . }}-token-salt
+              key: salt
+        ports:
+        - name: gunicorn
+          containerPort: 5000
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: gunicorn
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: gunicorn
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+        volumeMounts:
+        - name: recipes-data-csi
+          mountPath: /app/recipes_data
+          subPath: {{ .Release.Name }}-recipes
+      - name: nginx
+        image: nginx:1.25-alpine
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /nginx-health
+            port: http
+            scheme: {{ $tlsScheme }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /nginx-health
+            port: http
+            scheme: {{ $tlsScheme }}
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        {{- if .Values.tls.enabled }}
+        - name: tls-certs
+          mountPath: /etc/nginx/ssl
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: {{ include "prototype.fullname" . }}-nginx
+      {{- if .Values.tls.enabled }}
+      - name: tls-certs
+        secret:
+          secretName: {{ include "prototype.fullname" . }}-tls
+      {{- end }}
+      - name: recipes-data-csi
+        persistentVolumeClaim:
+          claimName: {{ include "prototype.fullname" . }}-recipes-csi-pvc
+
